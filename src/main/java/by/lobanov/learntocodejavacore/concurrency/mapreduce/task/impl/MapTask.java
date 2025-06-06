@@ -44,11 +44,22 @@ public class MapTask implements Task {
 
     public void execute(MapFunction mapFunction) {
         log.info("Worker {} started Map task ID={} for file {}", workerId, mapTaskId, inputFile);
-        var mappedKeyValues = mapFunction.map(inputFile);
-        var buckets = mapKeyValuesToBuckets(mappedKeyValues);
-        var intermediateFilesCreatedPaths = writeBucketsToFileAndReturnPaths(buckets);
-        log.info("Worker {} finished Map task ID={} for file {}", workerId, mapTaskId, inputFile);
-        coordinator.mapTaskCompleted(workerId, mapTaskId, intermediateFilesCreatedPaths);
+        String contents = null;
+        List<String> intermediateFilesCreatedPaths = new ArrayList<>();
+        
+        try {
+            contents = Files.readString(Path.of(inputFile), StandardCharsets.UTF_8);
+            var mappedKeyValues = mapFunction.map(inputFile, contents);
+            var buckets = mapKeyValuesToBuckets(mappedKeyValues);
+            writeBucketsToFileAndReturnPaths(buckets, intermediateFilesCreatedPaths);
+            log.info("Worker {} finished Map task ID={} for file {}", workerId, mapTaskId, inputFile);
+            coordinator.mapTaskCompleted(workerId, mapTaskId, intermediateFilesCreatedPaths);
+        } catch (IOException e) {
+            log.error("Worker {} failed Map task ID={} for file {}", workerId, mapTaskId, inputFile, e);
+            cleanupIntermediateFiles(intermediateFilesCreatedPaths);
+            coordinator.mapTaskFailed(workerId, mapTaskId);
+            throw new RuntimeException("Map task failed", e);
+        }
     }
 
     /**
@@ -77,9 +88,9 @@ public class MapTask implements Task {
      * @param buckets
      * @throws IOException
      */
-    private List<String> writeBucketsToFileAndReturnPaths(Map<Integer, List<KeyValue>> buckets) {
+    private List<String> writeBucketsToFileAndReturnPaths(Map<Integer, List<KeyValue>> buckets,
+                                                          List<String> intermediateFilesCreatedPaths) {
 
-        List<String> intermediateFilesCreatedPaths = new ArrayList<>();
         for (int i = 0; i < numReduceTasks; i++) {
             List<KeyValue> bucketContent = buckets.get(i);
             if (bucketContent.isEmpty()) {
@@ -102,6 +113,20 @@ public class MapTask implements Task {
         }
 
         return intermediateFilesCreatedPaths;
+    }
+
+    /**
+     * Clear intermediate files
+     */
+    private void cleanupIntermediateFiles(List<String> filePaths) {
+        for (String filePath : filePaths) {
+            try {
+                Files.deleteIfExists(Path.of(filePath));
+                log.debug("Cleaned up intermediate file: {}", filePath);
+            } catch (IOException e) {
+                log.warn("Failed to cleanup intermediate file: {}", filePath, e);
+            }
+        }
     }
 
     @Override

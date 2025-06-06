@@ -15,23 +15,19 @@ import java.util.*;
 public class WordCountMapFunction implements MapFunction {
 
     /**
-     * Разделяем content на слова и для каждого слова создаем объект KeyVal
-     * где key - это слово, а value - это "1". И возвращаем список этих объектов
+     * Split content into words and create a KeyValue object for each word
+     * where key is the word and value is "1". Return a list of these objects
      *
-     * @param filename
+     * @param filename, contents - content of the file with the given
      * @return {@link KeyValue}
      */
     @Override
-    public List<KeyValue> map(String filename) {
+    public List<KeyValue> map(String filename, String contents) {
+        if (!Files.exists(Paths.get(filename))) {
+            throw new RuntimeException("File not found: " + filename);
+        }
 
         List<KeyValue> results = new ArrayList<>();
-        String contents;
-
-        try {
-            contents = Files.readString(Path.of(filename), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
 
         StringTokenizer tokenizer = new StringTokenizer(contents, " \t\n\r\f.,:;?!\"'-()");
         while (tokenizer.hasMoreTokens()) {

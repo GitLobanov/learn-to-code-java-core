@@ -22,10 +22,11 @@ class WordCountMapFunctionTest {
     void testMap() throws IOException {
         // given
         Path testFile = tempDir.resolve("test.txt");
-        Files.writeString(testFile, "Hello, parameterized test!");
+        String content = "Hello, parameterized test!";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -44,10 +45,11 @@ class WordCountMapFunctionTest {
     void testMapSimpleText() throws IOException {
         // given
         Path testFile = tempDir.resolve("simple.txt");
-        Files.writeString(testFile, "hello world hello");
+        String content = "hello world hello";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -65,10 +67,11 @@ class WordCountMapFunctionTest {
     void testMapWithPunctuation() throws IOException {
         // given
         Path testFile = tempDir.resolve("punctuation.txt");
-        Files.writeString(testFile, "Hello, world! How are you?");
+        String content = "Hello, world! How are you?";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -86,13 +89,14 @@ class WordCountMapFunctionTest {
     }
 
     @Test
-    void testMapCaseInsensitive() throws IOException {
+    void testMapCasesInsensitive() throws IOException {
         // given
-        Path testFile = tempDir.resolve("case.txt");
-        Files.writeString(testFile, "Hello HELLO hello HeLLo");
+        Path testFile = tempDir.resolve("cases.txt");
+        String content = "Hello HELLO hello HeLLo";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -106,10 +110,11 @@ class WordCountMapFunctionTest {
     void testMapEmptyFile() throws IOException {
         // given
         Path testFile = tempDir.resolve("empty.txt");
-        Files.writeString(testFile, "");
+        String content = "";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -120,10 +125,11 @@ class WordCountMapFunctionTest {
     void testMapWhitespaceOnly() throws IOException {
         // given
         Path testFile = tempDir.resolve("whitespace.txt");
-        Files.writeString(testFile, "   \t\n\r\f   ");
+        String content = "   \t\n\r\f   ";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -134,10 +140,11 @@ class WordCountMapFunctionTest {
     void testMapPunctuationOnly() throws IOException {
         // given
         Path testFile = tempDir.resolve("punctuation.txt");
-        Files.writeString(testFile, ".,;:!?\"'-()");
+        String content = ".,;:!?\"'-()";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -148,10 +155,11 @@ class WordCountMapFunctionTest {
     void testMapWithNumbers() throws IOException {
         // given
         Path testFile = tempDir.resolve("numbers.txt");
-        Files.writeString(testFile, "test 123 hello 456");
+        String content = "test 123 hello 456";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -168,10 +176,11 @@ class WordCountMapFunctionTest {
     void testMapMultilineText() throws IOException {
         // given
         Path testFile = tempDir.resolve("multiline.txt");
-        Files.writeString(testFile, "first line\nsecond line\nthird line");
+        String content = "first line\nsecond line\nthird line";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -191,10 +200,11 @@ class WordCountMapFunctionTest {
     void testMapComplexText() throws IOException {
         // given
         Path testFile = tempDir.resolve("complex.txt");
-        Files.writeString(testFile, "The quick brown fox jumps over the lazy dog. The dog was really lazy!");
+        String content = "The quick brown fox jumps over the lazy dog. The dog was really lazy!";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -214,10 +224,11 @@ class WordCountMapFunctionTest {
     void testMapWithSpecialCharacters() throws IOException {
         // given
         Path testFile = tempDir.resolve("special.txt");
-        Files.writeString(testFile, "vladimir! hello-world test_case");
+        String content = "vladimir! hello-world test_case";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -234,10 +245,11 @@ class WordCountMapFunctionTest {
     void testMapFileNotFound() {
         // given
         String nonExistentFile = tempDir.resolve("nonexistent.txt").toString();
+        String content = "some content";
 
         // when & then
         assertThrows(RuntimeException.class, () -> {
-            wordCountMapFunction.map(nonExistentFile);
+            wordCountMapFunction.map(nonExistentFile, content);
         });
     }
 
@@ -245,10 +257,11 @@ class WordCountMapFunctionTest {
     void testMapAllValuesAreOne() throws IOException {
         // given
         Path testFile = tempDir.resolve("values.txt");
-        Files.writeString(testFile, "different words have different meanings but same count");
+        String content = "different words have different meanings but same count";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);
@@ -262,10 +275,11 @@ class WordCountMapFunctionTest {
     void testMapWithTabsAndMultipleSpaces() throws IOException {
         // given
         Path testFile = tempDir.resolve("tabs.txt");
-        Files.writeString(testFile, "word1\t\tword2   word3\r\nword4");
+        String content = "word1\t\tword2   word3\r\nword4";
+        Files.writeString(testFile, content);
 
         // when
-        List<KeyValue> result = wordCountMapFunction.map(testFile.toString());
+        List<KeyValue> result = wordCountMapFunction.map(testFile.toString(), content);
 
         // then
         assertNotNull(result);

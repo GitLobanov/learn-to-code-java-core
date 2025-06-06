@@ -16,6 +16,7 @@ import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 
 class WorkerTest {
 
@@ -36,7 +37,7 @@ class WorkerTest {
     }
 
     @Test
-    void testWorkerInitialization() {
+    void testWorkersInitialization() {
         assertNotNull(worker);
     }
 
@@ -56,7 +57,7 @@ class WorkerTest {
                 .thenReturn(mapTask)
                 .thenReturn(new ShutdownTask());
         when(mockCoordinator.getIntermediateDir()).thenReturn(tempDir.resolve("intermediate"));
-        when(mockMapFunction.map(inputFile.toString())).thenReturn(mapResult);
+        when(mockMapFunction.map(eq(inputFile.toString()), anyString())).thenReturn(mapResult);
 
         // Create intermediate directory
         Files.createDirectories(tempDir.resolve("intermediate"));
@@ -65,7 +66,7 @@ class WorkerTest {
         worker.run();
 
         // then
-        verify(mockMapFunction).map(inputFile.toString());
+        verify(mockMapFunction).map(eq(inputFile.toString()), anyString());
         verify(mockCoordinator, times(2)).getTask(1);
         verify(mockCoordinator).mapTaskCompleted(eq(1), eq(0), any());
     }
@@ -150,7 +151,7 @@ class WorkerTest {
 
         when(mockCoordinator.getIntermediateDir()).thenReturn(tempDir.resolve("intermediate"));
         when(mockCoordinator.getOutputDir()).thenReturn(tempDir.resolve("output"));
-        when(mockMapFunction.map(inputFile.toString())).thenReturn(Arrays.asList(new KeyValue("test", "1")));
+        when(mockMapFunction.map(eq(inputFile.toString()), anyString())).thenReturn(Arrays.asList(new KeyValue("test", "1")));
         when(mockReduceFunction.reduce("test", Arrays.asList("1"))).thenReturn("1");
 
         Files.createDirectories(tempDir.resolve("intermediate"));
@@ -161,7 +162,7 @@ class WorkerTest {
 
         // then
         verify(mockCoordinator, times(4)).getTask(1);
-        verify(mockMapFunction).map(inputFile.toString());
+        verify(mockMapFunction).map(eq(inputFile.toString()), anyString());
         verify(mockReduceFunction).reduce("test", Arrays.asList("1"));
         verify(mockCoordinator).mapTaskCompleted(eq(1), eq(0), any());
         verify(mockCoordinator).reduceTaskCompleted(eq(1), eq(0), any());
@@ -235,7 +236,7 @@ class WorkerTest {
     }
 
     @Test
-    void testMultipleWorkersWithSameCoordinator() throws InterruptedException {
+    void testMultipleWorkersWithSameCoordinators() throws InterruptedException {
         // given
         int numWorkers = 3;
         CountDownLatch latch = new CountDownLatch(numWorkers);

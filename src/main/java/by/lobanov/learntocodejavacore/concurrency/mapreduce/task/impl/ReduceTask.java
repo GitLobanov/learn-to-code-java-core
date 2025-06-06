@@ -44,13 +44,19 @@ public class ReduceTask implements Task{
     public void execute(ReduceFunction reduceFunction) {
         log.info("Worker {} started Reduce task {}, with {} files", workerId, reduceTaskId, intermediateFilesToProcess.size());
 
-        List<KeyValue> allKeyValuesFromFiles = getKeyValuesFromFiles();
-        if (isKeyValueListEmpty(allKeyValuesFromFiles)) return;
+        try {
+            List<KeyValue> allKeyValuesFromFiles = getKeyValuesFromFiles();
+            if (isKeyValueListEmpty(allKeyValuesFromFiles)) return;
 
-        allKeyValuesFromFiles.sort(Comparator.comparing(kv -> kv.key));
+            allKeyValuesFromFiles.sort(Comparator.comparing(kv -> kv.key));
 
-        Path finalOutputFilePath = perfomeReduceAndReturnPath(reduceFunction, allKeyValuesFromFiles);
-        coordinator.reduceTaskCompleted(workerId, reduceTaskId, finalOutputFilePath.toString());
+            Path finalOutputFilePath = perfomeReduceAndReturnPath(reduceFunction, allKeyValuesFromFiles);
+            coordinator.reduceTaskCompleted(workerId, reduceTaskId, finalOutputFilePath.toString());
+        } catch (Exception e) {
+            log.error("Worker {} failed Reduce task ID={}", workerId, reduceTaskId, e);
+            coordinator.reduceTaskFailed(workerId, reduceTaskId);
+            throw new RuntimeException("Reduce task failed", e);
+        }
     }
 
     /**

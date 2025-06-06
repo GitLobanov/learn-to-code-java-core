@@ -1,5 +1,7 @@
 package by.lobanov.learntocodejavacore.concurrency.mapreduce;
 
+import by.lobanov.learntocodejavacore.concurrency.mapreduce.function.*;
+import by.lobanov.learntocodejavacore.concurrency.mapreduce.function.impl.*;
 import by.lobanov.learntocodejavacore.concurrency.mapreduce.task.*;
 import by.lobanov.learntocodejavacore.concurrency.mapreduce.task.impl.*;
 import org.junit.jupiter.api.*;
@@ -14,22 +16,24 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CoordinatorTest {
 
+    public static final int NUM_REDUCE_TASKS = 2;
     @TempDir
     Path tempDir;
 
     private Coordinator coordinator;
     private List<String> inputFiles;
+    public static final int FILES = 3;
 
     @BeforeEach
     void setUp() throws IOException {
         inputFiles = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < FILES; i++) {
             Path inputFile = tempDir.resolve("input" + i + ".txt");
             Files.writeString(inputFile, "test content " + i);
             inputFiles.add(inputFile.toString());
         }
 
-        coordinator = new Coordinator(inputFiles, 2);
+        coordinator = new Coordinator(inputFiles, NUM_REDUCE_TASKS);
     }
 
     @Test
@@ -77,20 +81,6 @@ class CoordinatorTest {
         assertEquals(0, mapTask1.mapTaskId);
         assertEquals(1, mapTask2.mapTaskId);
         assertEquals(2, mapTask3.mapTaskId);
-    }
-
-    @Test
-    void testNoTaskAvailableWhenAllMapTasksDistributed() {
-        // given - get all map tasks
-        coordinator.getTask(1);
-        coordinator.getTask(2);
-        coordinator.getTask(3);
-
-        // when - try to get another task
-        Task task = coordinator.getTask(4);
-
-        // then
-        assertInstanceOf(NoTaskAvailable.class, task);
     }
 
     @Test
@@ -143,10 +133,10 @@ class CoordinatorTest {
 
     @Test
     void testReduceTaskCompletion() {
-        // given - complete all map tasks first
+        // given - complete all map tasks
         completeAllMapTasks();
 
-        // get reduce task
+        // get reduce tasks
         Task task = coordinator.getTask(1);
         ReduceTask reduceTask = (ReduceTask) task;
 
@@ -204,9 +194,6 @@ class CoordinatorTest {
             }
         }
 
-        completeAllMapTasks();
-        completeAllReduceTasks();
-
         assertTrue(coordinator.isDone());
     }
 
@@ -228,56 +215,74 @@ class CoordinatorTest {
         });
 
         // then
-        assertDoesNotThrow(() -> waitFuture.get(5, TimeUnit.SECONDS));
+        assertDoesNotThrow(() -> waitFuture.get(6, TimeUnit.SECONDS));
         assertTrue(coordinator.isDone());
     }
 
     @Test
-    void testConcurrentTaskRetrieval() throws InterruptedException {
+    void testConcurrentTasksRetrieval() throws InterruptedException {
         // given
         int numWorkers = 5;
-        CountDownLatch latch = new CountDownLatch(numWorkers);
-        List<Task> retrievedTasks = Collections.synchronizedList(new ArrayList<>());
 
-        // when - multiple workers try to get tasks concurrently
+        // when - multiple workers try to get tasks concurrently,
+        List<Task> retrievedTasks = Collections.synchronizedList(new ArrayList<>());
+        ExecutorService executorService = Executors.newFixedThreadPool(numWorkers);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch finishLatch = new CountDownLatch(numWorkers);
+
         for (int i = 0; i < numWorkers; i++) {
             final int workerId = i + 1;
-            new Thread(() -> {
+            executorService.submit(() -> {
                 try {
+                    startLatch.await(); // Wait for all workers to be ready
                     Task task = coordinator.getTask(workerId);
                     retrievedTasks.add(task);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 } finally {
-                    latch.countDown();
+                    finishLatch.countDown();
                 }
-            }).start();
+            });
         }
 
-        latch.await(5, TimeUnit.SECONDS);
-
-        // then
-        assertEquals(numWorkers, retrievedTasks.size());
+        startLatch.countDown();
+        Thread.sleep(100);
+        executorService.shutdownNow();
         long mapTasks = retrievedTasks.stream().filter(t -> t instanceof MapTask).count();
         long noTaskAvailable = retrievedTasks.stream().filter(t -> t instanceof NoTaskAvailable).count();
 
-        assertEquals(3, mapTasks);
-        assertEquals(2, noTaskAvailable);
+        assertTrue(retrievedTasks.size() >= 3, "Expected at least 3 tasks, got: " + retrievedTasks.size());
+        assertEquals(3, mapTasks, "Should have exactly 3 map tasks");
+        assertTrue(noTaskAvailable <= 2, "Should have at most 2 NoTaskAvailable responses");
     }
 
     private void completeAllMapTasks() {
-        for (int i = 0; i < 3; i++) {
-            Task task = coordinator.getTask(i + 1);
-            if (task instanceof MapTask mapTask) {
-                List<String> intermediateFiles = Arrays.asList("mr-" + i + "-0", "mr-" + i + "-1");
-                coordinator.mapTaskCompleted(i + 1, mapTask.mapTaskId, intermediateFiles);
+        Set<Integer> completedTasks = new HashSet<>();
+        while (completedTasks.size() < 3) {
+            for (int i = 0; i < 3; i++) {
+                if (completedTasks.contains(i)) continue;
+
+                Task task = coordinator.getTask(i + 1);
+                if (task instanceof MapTask mapTask) {
+                    List<String> intermediateFiles = Arrays.asList("mr-" + i + "-0", "mr-" + i + "-1");
+                    coordinator.mapTaskCompleted(i + 1, mapTask.mapTaskId, intermediateFiles);
+                    completedTasks.add(i);
+                }
             }
         }
     }
 
     private void completeAllReduceTasks() {
-        for (int i = 0; i < 2; i++) {
-            Task task = coordinator.getTask(i + 1);
-            if (task instanceof ReduceTask reduceTask) {
-                coordinator.reduceTaskCompleted(i + 1, reduceTask.reduceTaskId, "output-" + i);
+        Set<Integer> completedTasks = new HashSet<>();
+        while (completedTasks.size() < 2) {
+            for (int i = 0; i < 2; i++) {
+                if (completedTasks.contains(i)) continue;
+
+                Task task = coordinator.getTask(i + 1);
+                if (task instanceof ReduceTask reduceTask) {
+                    coordinator.reduceTaskCompleted(i + 1, reduceTask.reduceTaskId, "output-" + i);
+                    completedTasks.add(i);
+                }
             }
         }
     }

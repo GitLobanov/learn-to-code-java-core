@@ -18,21 +18,24 @@ public class Coordinator {
     private final List<String> inputFiles;
     private final int numReduceTasks;
 
-    private final Queue<String> pendingMapInputFiles; // Файлы, ожидающие обработки map-функцией
+    private final Queue<String> pendingMapInputFiles;
     private final AtomicInteger nextMapTaskId = new AtomicInteger(0);
     private final Set<Integer> completedMapTaskIds = Collections.synchronizedSet(new HashSet<>());
+    private final Set<Integer> failedMapTaskIds = Collections.synchronizedSet(new HashSet<>());
+    private final Map<Integer, String> mapTaskIdToInputFile = new ConcurrentHashMap<>();
     private final int totalMapTasks;
 
     private final Map<Integer, List<String>> mapTaskOutputFiles = new ConcurrentHashMap<>();
 
     private final Queue<Integer> pendingReduceTaskIds = new LinkedList<>();
     private final Set<Integer> completedReduceTaskIds = Collections.synchronizedSet(new HashSet<>());
+    private final Set<Integer> failedReduceTaskIds = Collections.synchronizedSet(new HashSet<>());
 
     private volatile boolean allMapTasksReportedDone = false;
-    private volatile boolean reduceTasksPrepared = false; // Указывает, что reduce задачи готовы к раздаче
+    private volatile boolean reduceTasksPrepared = false;
     private volatile boolean allReduceTasksReportedDone = false;
 
-    private final Object lock = new Object(); // Объект для синхронизации и wait/notify
+    private final Object lock = new Object();
 
     private final String intermediateDirName = "intermediate_files";
     private final String outputDirName = "output_files";
@@ -42,6 +45,13 @@ public class Coordinator {
     private final Path outputDir;
 
     public Coordinator(List<String> inputFiles, int numReduceTasks) {
+        if (inputFiles == null || inputFiles.isEmpty()) {
+            throw new IllegalArgumentException("Input files cannot be null or empty");
+        }
+        if (numReduceTasks <= 0) {
+            throw new IllegalArgumentException("Number of reduce tasks must be positive");
+        }
+
         this.inputFiles = new ArrayList<>(inputFiles);
         this.numReduceTasks = numReduceTasks;
         this.totalMapTasks = this.inputFiles.size();
@@ -62,54 +72,16 @@ public class Coordinator {
 
     public Task getTask(int workerId) {
         synchronized (lock) {
-            if (!allMapTasksReportedDone) {
-                if (!pendingMapInputFiles.isEmpty()) {
-                    String inputFile = pendingMapInputFiles.poll();
-                    int mapTaskId = nextMapTaskId.getAndIncrement();
-                    log.info("Coordinator: Worker {} is assigned Map task ID={} for file: {}", workerId, mapTaskId, inputFile);
-                    return new MapTask(inputFile, mapTaskId, numReduceTasks, this, workerId);
-                } else {
-                    if (completedMapTaskIds.size() < totalMapTasks) {
-                        log.info("Coordinator: Waiting for Map tasks to complete {} / {} ...", completedMapTaskIds.size(), totalMapTasks);
-                        try {
-                            lock.wait(500);
-                        } catch (InterruptedException e) { Thread.currentThread().interrupt(); return new ShutdownTask(); }
-                        return new NoTaskAvailable();
-                    } else {
-                        allMapTasksReportedDone = true;
-                        log.info("Coordinator: All Map tasks completed. Preparing Reduce tasks.");
-                    }
-                }
+            Task mapTask = tryGetMapTask(workerId);
+            if (mapTask != null) {
+                return mapTask;
             }
 
-            if (allMapTasksReportedDone && !reduceTasksPrepared) {
-                prepareReduceTasks();
-                reduceTasksPrepared = true;
-                log.info("Coordinator: Reduce tasks prepared.");
-                lock.notifyAll();
-            }
+            prepareReduceTasksIfReady();
 
-            if (reduceTasksPrepared && !allReduceTasksReportedDone) {
-                if (!pendingReduceTaskIds.isEmpty()) {
-                    int reduceTaskId = pendingReduceTaskIds.poll();
-                    List<String> filesForReduce = collectIntermediateFilesForReduceId(reduceTaskId);
-                    log.info("Coordinator: Worker {} is assigned Reduce task ID={} with {} files.",
-                            workerId, reduceTaskId, filesForReduce.size());
-                    return new ReduceTask(reduceTaskId, filesForReduce, workerId, this);
-                } else {
-                    if (completedReduceTaskIds.size() < numReduceTasks) {
-                        log.info("Coordinator: Waiting for Reduce tasks to complete {} / {} ...",
-                                completedReduceTaskIds.size(), numReduceTasks);
-                        try {
-                            lock.wait(500);
-                        } catch (InterruptedException e) { Thread.currentThread().interrupt(); return new ShutdownTask(); }
-                        return new NoTaskAvailable();
-                    } else {
-                        allReduceTasksReportedDone = true;
-                        log.info("Coordinator: All Reduce tasks completed.");
-                        lock.notifyAll();
-                    }
-                }
+            Task reduceTask = tryGetReduceTask(workerId);
+            if (reduceTask != null) {
+                return reduceTask;
             }
 
             if (allMapTasksReportedDone && allReduceTasksReportedDone) {
@@ -118,6 +90,106 @@ public class Coordinator {
             }
 
             return new NoTaskAvailable();
+        }
+    }
+
+    private Task tryGetMapTask(int workerId) {
+        while (!allMapTasksReportedDone) {
+            if (!pendingMapInputFiles.isEmpty()) {
+                return assignMapTask(workerId);
+            }
+
+            if (isAllMapTasksCompleted()) {
+                allMapTasksReportedDone = true;
+                log.info("Coordinator: All Map tasks completed. Preparing Reduce tasks.");
+                break;
+            }
+
+            if (!waitForMapTasks(workerId)) {
+                return new NoTaskAvailable();
+            }
+        }
+        return null;
+    }
+
+    private Task assignMapTask(int workerId) {
+        String inputFile = pendingMapInputFiles.poll();
+        int mapTaskId = nextMapTaskId.getAndIncrement();
+        mapTaskIdToInputFile.put(mapTaskId, inputFile);
+        log.info("Coordinator: Worker {} is assigned Map task ID={} for file: {}", workerId, mapTaskId, inputFile);
+        return new MapTask(inputFile, mapTaskId, numReduceTasks, this, workerId);
+    }
+
+    private boolean isAllMapTasksCompleted() {
+        return completedMapTaskIds.size() >= totalMapTasks;
+    }
+
+    private boolean waitForMapTasks(int workerId) {
+        int completedTasks = completedMapTaskIds.size();
+        log.debug("Coordinator: Worker {} waiting for Map tasks, complete {} / {}",
+                workerId, completedTasks, totalMapTasks);
+        try {
+            lock.wait();
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Coordinator: Worker {} interrupted while waiting for Map tasks", workerId);
+            return false;
+        }
+    }
+
+    private void prepareReduceTasksIfReady() {
+        if (allMapTasksReportedDone && !reduceTasksPrepared) {
+            prepareReduceTasks();
+            reduceTasksPrepared = true;
+            log.info("Coordinator: Reduce tasks prepared.");
+            lock.notifyAll();
+        }
+    }
+
+    private Task tryGetReduceTask(int workerId) {
+        while (reduceTasksPrepared && !allReduceTasksReportedDone) {
+            if (!pendingReduceTaskIds.isEmpty()) {
+                return assignReduceTask(workerId);
+            }
+
+            if (isAllReduceTasksCompleted()) {
+                allReduceTasksReportedDone = true;
+                log.info("Coordinator: All Reduce tasks completed.");
+                lock.notifyAll();
+                break;
+            }
+
+            if (!waitForReduceTasks(workerId)) {
+                return new NoTaskAvailable(); // Прерван
+            }
+        }
+        return null;
+    }
+
+    private Task assignReduceTask(int workerId) {
+        int reduceTaskId = pendingReduceTaskIds.poll();
+        List<String> filesForReduce = collectIntermediateFilesForReduceId(reduceTaskId);
+        log.info("Coordinator: Worker {} is assigned Reduce task ID={} with {} files.",
+                workerId, reduceTaskId, filesForReduce.size());
+        return new ReduceTask(reduceTaskId, filesForReduce, workerId, this);
+    }
+
+    private boolean isAllReduceTasksCompleted() {
+        return completedReduceTaskIds.size() >= numReduceTasks;
+    }
+
+    private boolean waitForReduceTasks(int workerId) {
+        int completedTasks = completedReduceTaskIds.size();
+        log.debug("Coordinator: Worker {} waiting for Reduce tasks, complete {} / {}",
+                workerId, completedTasks, numReduceTasks);
+        try {
+            lock.wait();
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Coordinator: Worker {} interrupted while waiting for Reduce tasks", workerId);
+            return false;
         }
     }
 
@@ -150,18 +222,36 @@ public class Coordinator {
     }
 
     public void mapTaskCompleted(int workerId, int mapTaskId, List<String> createdIntermediateFiles) {
+        if (createdIntermediateFiles == null) {
+            throw new IllegalArgumentException("Created intermediate files cannot be null");
+        }
+
         synchronized (lock) {
             if (completedMapTaskIds.contains(mapTaskId)) {
                 log.info("Coordinator: Worker {} re-reported map task {}. Ignoring.", workerId, mapTaskId);
                 return;
             }
             completedMapTaskIds.add(mapTaskId);
-            mapTaskOutputFiles.put(mapTaskId, createdIntermediateFiles);
+            mapTaskOutputFiles.put(mapTaskId, Collections.unmodifiableList(createdIntermediateFiles));
             log.info("Coordinator: Worker {} completed map task {}. Intermediate files: {}. Total Map completed: {}/{}.",
                     workerId, mapTaskId, createdIntermediateFiles, completedMapTaskIds.size(), totalMapTasks);
-            if (completedMapTaskIds.size() == totalMapTasks) {
-                allMapTasksReportedDone = true;
-                log.info("Coordinator: ALL Map tasks completed.");
+            lock.notifyAll();
+        }
+    }
+
+    public void mapTaskFailed(int workerId, int mapTaskId) {
+        synchronized (lock) {
+            if (completedMapTaskIds.contains(mapTaskId) || failedMapTaskIds.contains(mapTaskId)) {
+                log.info("Coordinator: Worker {} re-reported failed map task {}. Ignoring.", workerId, mapTaskId);
+                return;
+            }
+            failedMapTaskIds.add(mapTaskId);
+            String inputFile = mapTaskIdToInputFile.get(mapTaskId);
+            if (inputFile != null) {
+                pendingMapInputFiles.add(inputFile);
+                mapTaskIdToInputFile.remove(mapTaskId);
+                log.info("Coordinator: Worker {} failed map task {}. Re-adding file {} to pending tasks.",
+                        workerId, mapTaskId, inputFile);
             }
             lock.notifyAll();
         }
@@ -170,16 +260,33 @@ public class Coordinator {
     public void reduceTaskCompleted(int workerId, int reduceTaskId, String finalOutputFile) {
         synchronized (lock) {
             if (completedReduceTaskIds.contains(reduceTaskId)) {
-                log.info("Coordinator Worker {} re-reported reduce task {}. Ignoring.", workerId, reduceTaskId);
+                log.info("Coordinator Workers {} re-reported reduce task {}. Ignoring.", workerId, reduceTaskId);
                 return;
             }
             completedReduceTaskIds.add(reduceTaskId);
             log.info("Coordinator: Worker {} completed reduce task {}. Final output file: {}. Total Reduce completed: {}/{}.",
                     workerId, reduceTaskId, finalOutputFile, completedReduceTaskIds.size(), numReduceTasks);
-            if (completedReduceTaskIds.size() == numReduceTasks) {
+
+            // Check if all reduce tasks are completed and set the flag
+            if (isAllReduceTasksCompleted()) {
                 allReduceTasksReportedDone = true;
-                log.info("Coordinator: ALL Reduce tasks completed.");
+                log.info("Coordinator: All Reduce tasks completed.");
             }
+
+            lock.notifyAll();
+        }
+    }
+
+    public void reduceTaskFailed(int workerId, int reduceTaskId) {
+        synchronized (lock) {
+            if (completedReduceTaskIds.contains(reduceTaskId) || failedReduceTaskIds.contains(reduceTaskId)) {
+                log.info("Coordinator: Worker {} re-reported failed reduce task {}. Ignoring.", workerId, reduceTaskId);
+                return;
+            }
+            failedReduceTaskIds.add(reduceTaskId);
+            log.info("Coordinator: Worker {} failed reduce task {}. Re-adding task {} to pending tasks.",
+                    workerId, reduceTaskId, reduceTaskId);
+            pendingReduceTaskIds.add(reduceTaskId);
             lock.notifyAll();
         }
     }
@@ -209,15 +316,42 @@ public class Coordinator {
 
     private void deleteDirectory(Path directoryPath) throws IOException {
         if (Files.exists(directoryPath)) {
-            Files.walk(directoryPath)
-                    .sorted(java.util.Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException e) {
-                            log.error("Failed to delete " + path, e);
-                        }
-                    });
+            List<IOException> suppressedExceptions = new ArrayList<>();
+            try (var stream = Files.walk(directoryPath)) {
+                stream.sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                            } catch (IOException e) {
+                                log.error("Failed to delete path: {}", path, e);
+                                suppressedExceptions.add(e);
+                            }
+                        });
+            }
+            if (!suppressedExceptions.isEmpty()) {
+                IOException mainException = new IOException("Failed to delete some files in directory: " + directoryPath);
+                suppressedExceptions.forEach(mainException::addSuppressed);
+                throw mainException;
+            }
+        }
+    }
+
+    public static class Builder {
+        private List<String> inputFiles;
+        private int numReduceTasks;
+
+        public Builder inputFiles(List<String> inputFiles) {
+            this.inputFiles = new ArrayList<>(inputFiles);
+            return this;
+        }
+
+        public Builder numReduceTasks(int numReduceTasks) {
+            this.numReduceTasks = numReduceTasks;
+            return this;
+        }
+
+        public Coordinator build() {
+            return new Coordinator(inputFiles, numReduceTasks);
         }
     }
 }
