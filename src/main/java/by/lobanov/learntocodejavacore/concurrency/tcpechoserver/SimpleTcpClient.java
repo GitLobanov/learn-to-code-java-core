@@ -22,7 +22,7 @@ public class SimpleTcpClient {
         try (
                 var socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
                 var out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
-                var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                var in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                 var stdIn = new BufferedReader(new InputStreamReader(System.in))
         ) {
             log.info("Connected to server {}:{}", SERVER_ADDRESS, SERVER_PORT);
@@ -50,7 +50,7 @@ public class SimpleTcpClient {
         } catch (UnknownHostException e) {
             log.error("Unknown host: {}", SERVER_ADDRESS, e);
         } catch (IOException e) {
-            log.error("I/O error occurred: {}", e.getMessage(), e);
+            log.error("I/O error occurred: {}", e.getMessage());
         } finally {
             log.info("Client finished work.");
         }

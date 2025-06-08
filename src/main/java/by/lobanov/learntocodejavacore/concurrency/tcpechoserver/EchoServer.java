@@ -15,6 +15,8 @@ public class EchoServer {
 
     private static final Logger log = LoggerFactory.getLogger(EchoServer.class);
     private int port = 12345;
+    private ExecutorService serverExecutor;
+    private ServerSocket serverSocket;
 
     public EchoServer(int port) {
         this.port = port;
@@ -26,11 +28,9 @@ public class EchoServer {
     @SuppressWarnings("all")
     public void start() {
         log.info("Starting EchoServer on port {}", port);
-
-        try (
-            var serverExecutor = Executors.newCachedThreadPool();
-            var serverSocket = new ServerSocket(port)
-        ) {
+        try {
+            var serverExecutor = Executors.newFixedThreadPool(10);
+            var serverSocket = new ServerSocket(port);
             while (true) {
                 log.info("Waiting for client connection...");
                 var socket = serverSocket.accept();
@@ -40,6 +40,21 @@ public class EchoServer {
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } finally {
+            stop();
+        }
+    }
+
+    public void stop() {
+        try {
+            log.info("Stopping EchoServer...");
+            serverSocket.close();
+            serverExecutor.shutdown();
+            if (!serverExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                serverExecutor.shutdownNow();
+            }
+        } catch (IOException | InterruptedException e) {
+            log.error("Error stopping EchoServer: {}", e.getMessage());
         }
     }
 

@@ -22,7 +22,7 @@ public class ClientHandler implements Runnable {
     @Override
     public void run() {
         try (
-             var inputStream = new InputStreamReader(socket.getInputStream());
+             var inputStream = new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8);
              var reader = new BufferedReader(inputStream);
              var writer = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
         ) {
@@ -41,7 +41,7 @@ public class ClientHandler implements Runnable {
             }
         } catch (IOException e) {
             log.error("Ошибка при обработке клиента {}: {}" ,
-                    (socket != null ? socket.getInetAddress().getHostAddress() : "N/A"), e.getMessage());
+                    socket.getInetAddress().getHostAddress(), e.getMessage(), e);
         } finally {
             try {
                 if (socket != null && !socket.isClosed()) {
