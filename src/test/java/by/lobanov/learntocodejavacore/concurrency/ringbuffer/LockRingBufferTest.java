@@ -5,7 +5,6 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.*;
 import org.junit.jupiter.params.provider.*;
 
-import java.lang.reflect.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.stream.*;
@@ -52,7 +51,7 @@ class LockRingBufferTest {
     }
 
     @Test
-    void givenBuffer_whenOfferAndCallIsEmpty_thenShouldReturnFalse() throws InterruptedException {
+    void givenBuffer_whenOfferAndCallIsEmpty_thenShouldReturnFalse() {
         // given
         ringBuffer = new LockRingBuffer<>(baseCapacity);
 
@@ -64,7 +63,7 @@ class LockRingBufferTest {
     }
 
     @Test
-    void givenBuffer_whenOfferElementsEqualCapacityAndCallIsFull_thenShouldReturnTrue() throws InterruptedException {
+    void givenBuffer_whenOfferElementsEqualCapacityAndCallIsFull_thenShouldReturnTrue() {
         // given
         ringBuffer = new LockRingBuffer<>(baseCapacity);
 
@@ -200,8 +199,6 @@ class LockRingBufferTest {
                     for (int i = 0; i < itemsPerProducer; i++) {
                         ringBuffer.offer("Producer" + producerId + "-Item" + i);
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 } finally {
                     allTasksCompleted.countDown();
                 }
@@ -217,8 +214,6 @@ class LockRingBufferTest {
                         String item = ringBuffer.take();
                         consumedItems.offer(item);
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 } finally {
                     allTasksCompleted.countDown();
                 }
@@ -237,7 +232,49 @@ class LockRingBufferTest {
         Assertions.assertEquals(expectedTotalItems, uniqueItems, "All consumed items should be unique");
     }
 
+    @Test
+    void givenNullObject_whenOffer_thenNPEIsThrown() {
+        // given
+        ringBuffer = new LockRingBuffer<>(10);
+        String nullObject = null;
 
+        // when
+        Throwable throwable = Assertions.assertThrows(NullPointerException.class,
+                () -> ringBuffer.offer(nullObject));
+
+        // then
+        Assertions.assertEquals(NullPointerException.class, throwable.getClass());
+    }
+
+    @Test
+    void givenClosedAndFullBuffer_whenDoOffer_thenExceptionIsThrown() {
+        // given
+        ringBuffer = new LockRingBuffer<>(1);
+        ringBuffer.close();
+        ringBuffer.offer("first object");
+        String newObject = "new object";
+
+        // when
+        Throwable throwable = Assertions.assertThrows(IllegalStateException.class,
+                () -> ringBuffer.offer(newObject));
+
+        // then
+        Assertions.assertEquals(IllegalStateException.class, throwable.getClass());
+    }
+
+    @Test
+    void givenClosedAndEmptyBuffer_whenDoTake_thenExceptionIsThrown() {
+        // given
+        ringBuffer = new LockRingBuffer<>(1);
+        ringBuffer.close();
+
+        // when
+        Throwable throwable = Assertions.assertThrows(IllegalStateException.class,
+                () -> ringBuffer.take());
+
+        // then
+        Assertions.assertEquals(IllegalStateException.class, throwable.getClass());
+    }
 
     // Classes for test
 
@@ -253,13 +290,9 @@ class LockRingBufferTest {
         @Override
         public void run() {
             for (int i = 0; i < items.length; ) {
-                try {
-                    if (this.ringBuffer.offer(items[i])) {
-                        i++;
-                        System.out.println(Thread.currentThread());
-                    }
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                if (this.ringBuffer.offer(items[i])) {
+                    i++;
+                    System.out.println(Thread.currentThread());
                 }
             }
         }

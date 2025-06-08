@@ -9,6 +9,7 @@ public class LockRingBuffer<T> implements RingBuffer<T> {
     private int count;
     private int readPointer;
     private int writePointer;
+    private boolean isClosed = false;
 
     private final Lock lock = new ReentrantLock();
 
@@ -16,19 +17,35 @@ public class LockRingBuffer<T> implements RingBuffer<T> {
     private final Condition notFull = lock.newCondition();
 
     public LockRingBuffer(int capacity) {
-        this.capacity = capacity;
-        buffer = (T[]) new Object[capacity];
-        readPointer = 0;
-        writePointer = 0;
-        count = 0;
+        if (capacity <= 0) {
+            throw new IllegalArgumentException("Capacity must be greater than 0");
+        } else {
+            this.capacity = capacity;
+            buffer = (T[]) new Object[capacity];
+            readPointer = 0;
+            writePointer = 0;
+            count = 0;
+        }
     }
 
     @Override
-    public boolean offer(T item) throws InterruptedException {
+    public boolean offer(T item) {
+        if (item == null) {
+            throw new NullPointerException("Cannot offer null item to the ring buffer");
+        }
+
         lock.lock();
         try {
             while (count == capacity) {
-                notFull.await();
+                if (isClosed) {
+                    throw new IllegalStateException("Cannot offer to a closed ring buffer");
+                }
+
+                try {
+                    notFull.await();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             }
             buffer[writePointer] = item;
             writePointer = (writePointer + 1) % capacity;
@@ -42,11 +59,19 @@ public class LockRingBuffer<T> implements RingBuffer<T> {
     }
 
     @Override
-    public T take() throws InterruptedException {
+    public T take() {
         lock.lock();
         try {
             while (count == 0) {
-                notEmpty.await();
+                if (isClosed) {
+                    throw new IllegalStateException("Cannot take from a closed ring buffer");
+                }
+
+                try {
+                    notEmpty.await();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             }
             T item = buffer[readPointer];
             readPointer = (readPointer + 1) % capacity;
@@ -61,16 +86,53 @@ public class LockRingBuffer<T> implements RingBuffer<T> {
 
     @Override
     public boolean isEmpty() {
-        return count == 0;
+        lock.lock();
+        try {
+            return count == 0;
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
     public boolean isFull() {
-        return count == capacity;
+        lock.lock();
+        try {
+            return count == capacity;
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
     public int size() {
-        return count;
+        lock.lock();
+        try {
+            return count;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public void close() {
+        lock.lock();
+        try {
+            isClosed = true;
+            notFull.signalAll();
+            notEmpty.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public boolean isClosed() {
+        lock.lock();
+        try {
+            return isClosed;
+        } finally {
+            lock.unlock();
+        }
     }
 }
