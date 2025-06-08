@@ -7,14 +7,16 @@ public class PrintNumbersL1_1 {
     private static boolean available = false;
 
     public static void main(String[] args) throws InterruptedException {
-        evenThread.start();
+        Thread evenThread = new Thread(evenTask);
+        Thread oddThread = new Thread(oddTask);
         oddThread.start();
+        evenThread.start();
 
         evenThread.join();
         oddThread.join();
     }
 
-    private static Thread evenThread = new Thread(() -> {
+    private static Runnable evenTask= () -> {
         for (int i = 0; i < TIMES_PRINT_PER_THREAD; i = i + 2) {
             try {
                 synchronized (monitor) {
@@ -29,9 +31,9 @@ public class PrintNumbersL1_1 {
                 throw new RuntimeException(e);
             }
         }
-    });
+    };
 
-    private static Thread oddThread = new Thread(() -> {
+    private static Runnable oddTask = () -> {
         for (int i = 1; i < TIMES_PRINT_PER_THREAD; i = i + 2) {
             try {
                 synchronized (monitor) {
@@ -46,5 +48,5 @@ public class PrintNumbersL1_1 {
                 throw new RuntimeException(e);
             }
         }
-    });
+    };
 }
