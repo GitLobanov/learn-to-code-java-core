@@ -8,6 +8,10 @@ public class PrintNumbersL1_2 {
     private static final int TIMES_PRINT_PER_THREAD = 10;
 
     public static void main(String[] args) throws InterruptedException {
+        PrintNumbersL1_2 p12 = new PrintNumbersL1_2();
+        Thread evenThread = new Thread(p12.evenTask);
+        Thread oddThread = new Thread(p12.oddTask);
+
         evenThread.start();
         oddThread.start();
 
@@ -15,7 +19,7 @@ public class PrintNumbersL1_2 {
         oddThread.join();
     }
 
-    private static Thread evenThread = new Thread(() -> {
+    private Runnable evenTask = () -> {
         for (int i = 0; i < TIMES_PRINT_PER_THREAD; i = i + 2) {
             while (!isEvenTurn.get()) {
                 // Busy-waiting (плохой подход, но работает)
@@ -23,9 +27,9 @@ public class PrintNumbersL1_2 {
             System.out.println("Even: " + i);
             isEvenTurn.set(false);
         }
-    });
+    };
 
-    private static Thread oddThread = new Thread(() -> {
+    private Runnable oddTask = () -> {
         for (int i = 1; i < TIMES_PRINT_PER_THREAD; i = i + 2) {
             while (isEvenTurn.get()) {
                 // Busy-waiting (плохой подход, но работает)
@@ -33,5 +37,5 @@ public class PrintNumbersL1_2 {
             System.out.println("Odd: " + i);
             isEvenTurn.set(true);
         }
-    });
+    };
 }

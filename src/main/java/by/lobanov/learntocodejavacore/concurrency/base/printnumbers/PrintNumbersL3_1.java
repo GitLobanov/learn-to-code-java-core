@@ -10,6 +10,10 @@ public class PrintNumbersL3_1 {
     private static final Semaphore oddSemaphore = new Semaphore(0);
 
     public static void main(String[] args) throws InterruptedException {
+        PrintNumbersL3_1 p31 = new PrintNumbersL3_1();
+        Thread evenThread = new Thread(p31.evenThread);
+        Thread oddThread = new Thread(p31.oddThread);
+
         evenThread.start();
         oddThread.start();
 
@@ -17,7 +21,7 @@ public class PrintNumbersL3_1 {
         oddThread.join();
     }
 
-    private static Thread evenThread = new Thread(() -> {
+    private Runnable evenThread = () -> {
         for (int i = 0; i < TIMES_PRINT_PER_THREAD; i++) {
             try {
                 evenSemaphore.acquire();
@@ -27,9 +31,9 @@ public class PrintNumbersL3_1 {
                 throw new RuntimeException(e);
             }
         }
-    });
+    };
 
-    private static Thread oddThread = new Thread(() -> {
+    private Runnable oddThread = () -> {
         for (int i = 1; i < TIMES_PRINT_PER_THREAD; i++) {
             try {
                 oddSemaphore.acquire();
@@ -39,7 +43,7 @@ public class PrintNumbersL3_1 {
                 throw new RuntimeException(e);
             }
         }
-    });
+    };
 
     private static void printNumber() {
         System.out.println(String.format("%s-%d", Thread.currentThread(), counter++));

@@ -14,6 +14,10 @@ public class PrintNumbersL2_1 {
 
 
     public static void main(String[] args) throws InterruptedException {
+        PrintNumbersL2_1 p21 = new PrintNumbersL2_1();
+        Thread evenThread = new Thread(p21.evenThread);
+        Thread oddThread = new Thread(p21.oddThread);
+
         evenThread.start();
         oddThread.start();
 
@@ -21,7 +25,7 @@ public class PrintNumbersL2_1 {
         oddThread.join();
     }
 
-    private static Thread evenThread = new Thread(() -> {
+    private Runnable evenThread = () -> {
         for (int i = 0; i < TIMES_PRINT_PER_THREAD; i++) {
             try {
                 lock.lock();
@@ -37,9 +41,9 @@ public class PrintNumbersL2_1 {
                 lock.unlock();
             }
         }
-    });
+    };
 
-    private static Thread oddThread = new Thread(() -> {
+    private Runnable oddThread = () -> {
         for (int i = 1; i < TIMES_PRINT_PER_THREAD; i++) {
             try {
                 lock.lock();
@@ -55,7 +59,7 @@ public class PrintNumbersL2_1 {
                 lock.unlock();
             }
         }
-    });
+    };
 
     private static void printNumber() {
         System.out.println(String.format("%s-%d", Thread.currentThread(), counter++));
